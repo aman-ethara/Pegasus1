@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const service = require('../src/services/orderService');
+const SignatureVerificationError = require('../src/errors/SignatureVerificationError');
 const rpWebhook = require('../src/data/razorpay/payment_webhook.json');
 
 function sign(payload, secret) {
@@ -13,13 +14,27 @@ describe('orderService', () => {
     expect(fetched).toMatchObject({ id: order.id, amount: 111 });
   });
 
-  test('verifyRazorpaySignature true for valid signature', async () => {
+  test('verifyRazorpaySignature returns idempotencyKey (no header)', async () => {
     const payload = JSON.stringify({ hello: 'world' });
     const signature = sign(payload, 'whsec_dev');
-    await expect(service.verifyRazorpaySignature(payload, signature)).resolves.toBe(true);
+    await expect(service.verifyRazorpaySignature(payload, signature)).resolves.toEqual({ idempotencyKey: null });
   });
 
-  test('handleWebhook updates order status to paid on payment.captured', async () => {
+  test('verifyRazorpaySignature uses header in signature base', async () => {
+    const payload = JSON.stringify({ hello: 'world' });
+    const headers = { 'x-razorpay-event-id': 'evt_123' };
+    const signature = sign(`${payload}|evt_123`, 'whsec_dev');
+    const result = await service.verifyRazorpaySignature(payload, signature, headers, {});
+    expect(result).toEqual({ idempotencyKey: 'evt_123' });
+  });
+
+  test('verifyRazorpaySignature throws typed error on mismatch', async () => {
+    const payload = JSON.stringify({ hello: 'world' });
+    const badSignature = 'deadbeef';
+    await expect(service.verifyRazorpaySignature(payload, badSignature)).rejects.toBeInstanceOf(SignatureVerificationError);
+  });
+
+  test('handleWebhook updates order status to paid on payment.captured and returns idempotencyKey', async () => {
     const created = await service.createOrder({ amount: rpWebhook.payload.payment.entity.amount, currency: 'INR', receipt: 'r2' });
     // align webhook order id to created order id
     const event = JSON.parse(JSON.stringify(rpWebhook));
@@ -27,7 +42,8 @@ describe('orderService', () => {
     const payload = JSON.stringify(event);
     const signature = sign(payload, 'whsec_dev');
     const result = await service.handleWebhook(event, { 'x-razorpay-signature': signature });
-    expect(result).toEqual({ received: true });
+    expect(result).toHaveProperty('received', true);
+    expect(typeof result.idempotencyKey).toBe('string');
     const updated = await service.getOrderById(created.id);
     expect(updated).toHaveProperty('status', 'paid');
   });
