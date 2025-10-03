@@ -9,6 +9,7 @@ const SignatureVerificationError = require('../errors/SignatureVerificationError
 const store = {
   orders: new Map(),
   payments: new Map(),
+  processedEvents: new Set(),
 };
 
 async function createOrder(input) {
@@ -63,15 +64,33 @@ async function verifyRazorpaySignature(payload, signature, headers = {}, eventBo
 async function handleWebhook(eventBody, headers = {}) {
   const sig = headers['x-razorpay-signature'] || headers['X-Razorpay-Signature'] || '';
   const payload = JSON.stringify(eventBody);
+  // log received
+  const prelimIdem = extractIdempotencyKey(headers, eventBody);
+  logger.info({ event: eventBody?.event, idempotencyKey: prelimIdem }, 'Webhook received');
+
   const { idempotencyKey } = await verifyRazorpaySignature(payload, sig, headers, eventBody);
+  logger.info({ idempotencyKey }, 'Webhook validated');
+
+  if (idempotencyKey && store.processedEvents.has(idempotencyKey)) {
+    logger.info({ idempotencyKey }, 'Webhook already applied, skipping');
+    return { received: true, idempotencyKey, applied: false, duplicate: true };
+  }
 
   if (eventBody.event === 'payment.captured' && eventBody.payload?.payment?.entity) {
     const payment = eventBody.payload.payment.entity;
-    await persistPayment(payment);
-    await updateOrderStatus(payment.order_id, 'paid');
+    try {
+      await persistPayment(payment);
+      await updateOrderStatus(payment.order_id, 'paid');
+      if (idempotencyKey) store.processedEvents.add(idempotencyKey);
+      logger.info({ idempotencyKey, orderId: payment.order_id, paymentId: payment.id }, 'Webhook applied');
+      return { received: true, idempotencyKey, applied: true };
+    } catch (err) {
+      logger.error({ err, idempotencyKey }, 'Webhook application failed');
+      throw err;
+    }
   }
 
-  return { received: true, idempotencyKey };
+  return { received: true, idempotencyKey, applied: false };
 }
 
 async function updateOrderStatus(orderId, status) {

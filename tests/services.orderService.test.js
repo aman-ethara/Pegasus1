@@ -14,6 +14,41 @@ describe('orderService', () => {
     expect(fetched).toMatchObject({ id: order.id, amount: 111 });
   });
 
+  test('handleWebhook is idempotent: duplicate event does not double-apply', async () => {
+    const created = await service.createOrder({ amount: 200, currency: 'INR', receipt: 'dup' });
+    const event = JSON.parse(JSON.stringify(rpWebhook));
+    event.payload.payment.entity.order_id = created.id;
+    const headers = { 'x-razorpay-event-id': 'evt_dup_1' };
+    const payload = JSON.stringify(event);
+    const signature = sign(`${payload}|evt_dup_1`, 'whsec_dev');
+
+    const spyPersist = jest.spyOn(service, 'persistPayment');
+    const first = await service.handleWebhook(event, { ...headers, 'x-razorpay-signature': signature });
+    expect(first).toMatchObject({ received: true, applied: true, idempotencyKey: 'evt_dup_1' });
+
+    const second = await service.handleWebhook(event, { ...headers, 'x-razorpay-signature': signature });
+    expect(second).toMatchObject({ received: true, applied: false, duplicate: true, idempotencyKey: 'evt_dup_1' });
+    expect(spyPersist).toHaveBeenCalledTimes(1);
+    spyPersist.mockRestore();
+  });
+
+  test('handleWebhook failure logs error and does not mark as applied or processed', async () => {
+    const created = await service.createOrder({ amount: 300, currency: 'INR', receipt: 'fail' });
+    const event = JSON.parse(JSON.stringify(rpWebhook));
+    event.payload.payment.entity.order_id = created.id;
+    const headers = { 'x-razorpay-event-id': 'evt_fail_1' };
+    const payload = JSON.stringify(event);
+    const signature = sign(`${payload}|evt_fail_1`, 'whsec_dev');
+
+    const err = new Error('persist failed');
+    const spyPersist = jest.spyOn(service, 'persistPayment').mockRejectedValue(err);
+    await expect(
+      service.handleWebhook(event, { ...headers, 'x-razorpay-signature': signature })
+    ).rejects.toThrow('persist failed');
+    expect(service.__store.processedEvents.has('evt_fail_1')).toBe(false);
+    spyPersist.mockRestore();
+  });
+
   test('verifyRazorpaySignature returns idempotencyKey (no header)', async () => {
     const payload = JSON.stringify({ hello: 'world' });
     const signature = sign(payload, 'whsec_dev');
