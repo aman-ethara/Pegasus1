@@ -1,0 +1,29 @@
+{
+  "name": "pegasus-payments-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node.js Express service with health endpoint, structured logs, env-driven config, mock Shopify/Razorpay integrations",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon --watch src src/index.js",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch",
+    "lint": "echo \"No lint configured\""
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pino": "^8.16.0",
+    "pino-http": "^8.5.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1",
+    "supertest": "^6.3.3"
+  }
+}

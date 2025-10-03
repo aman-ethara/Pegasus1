@@ -1,0 +1,19 @@
+{
+  "entity": "event",
+  "account_id": "acc_MOCK",
+  "event": "payment.captured",
+  "contains": ["payment"],
+  "payload": {
+    "payment": {
+      "entity": {
+        "id": "pay_MOCK123",
+        "order_id": "order_MOCK123",
+        "amount": 50000,
+        "currency": "INR",
+        "status": "captured",
+        "email": "test@example.com",
+        "contact": "9999999999"
+      }
+    }
+  }
+}
