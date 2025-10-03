@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const service = require('../src/services/orderService');
+const shopifyClient = require('../src/clients/shopifyClient');
 const SignatureVerificationError = require('../src/errors/SignatureVerificationError');
 const rpWebhook = require('../src/data/razorpay/payment_webhook.json');
 
@@ -87,6 +88,29 @@ describe('orderService', () => {
     const order = await service.createOrder({ amount: 10, currency: 'INR', receipt: 'r3' });
     const updated = await service.updateOrderStatus(order.id, 'processing');
     expect(updated).toHaveProperty('status', 'processing');
+  });
+
+  test('updateOrderStatus paid triggers Shopify confirmation success', async () => {
+    const order = await service.createOrder({ amount: 777, currency: 'INR', receipt: 'r-ok' });
+    const spy = jest.spyOn(shopifyClient, 'confirmOrder').mockResolvedValue({ id: order.id, status: 'confirmed', transaction_id: 'txn_ok' });
+    const updated = await service.updateOrderStatus(order.id, 'paid');
+    expect(spy).toHaveBeenCalled();
+    expect(updated).toHaveProperty('status', 'paid');
+    expect(updated).toHaveProperty('confirmation');
+    expect(updated.confirmation).toMatchObject({ attempted: true, success: true });
+    spy.mockRestore();
+  });
+
+  test('updateOrderStatus paid preserves failure info when Shopify confirmation fails', async () => {
+    const order = await service.createOrder({ amount: 888, currency: 'INR', receipt: 'r-fail' });
+    const spy = jest.spyOn(shopifyClient, 'confirmOrder').mockRejectedValue(new Error('confirm failed'));
+    const updated = await service.updateOrderStatus(order.id, 'paid');
+    expect(spy).toHaveBeenCalled();
+    expect(updated).toHaveProperty('status', 'paid');
+    expect(updated).toHaveProperty('confirmation');
+    expect(updated.confirmation).toMatchObject({ attempted: true, success: false });
+    expect(updated.confirmation.error).toBeDefined();
+    spy.mockRestore();
   });
 
   test('persistPayment returns the payment object', async () => {

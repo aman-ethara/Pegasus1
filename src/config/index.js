@@ -14,7 +14,10 @@ const config = {
     keyId: process.env.RAZORPAY_KEY_ID || '',
     keySecret: process.env.RAZORPAY_KEY_SECRET || ''
   },
-  webhookSecret: process.env.WEBHOOK_SECRET || 'whsec_dev'
+  webhookSecret: process.env.WEBHOOK_SECRET || 'whsec_dev',
+  httpTimeoutMs: parseInt(process.env.HTTP_TIMEOUT_MS || '5000', 10),
+  retryAttempts: parseInt(process.env.RETRY_ATTEMPTS || '3', 10),
+  retryBackoffMs: parseInt(process.env.RETRY_BACKOFF_MS || '200', 10),
 };
 
 module.exports = config;
